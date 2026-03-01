@@ -2,6 +2,6 @@ faster-whisper
 sounddevice
 soundfile
 numpy
-pynput
+evdev
 Pillow
 pystray

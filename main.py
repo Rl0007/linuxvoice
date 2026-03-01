@@ -2,6 +2,7 @@
 """FluidVoice Linux — push-to-talk dictation via faster-whisper (CUDA)."""
 
 import json
+import math
 import os
 import subprocess
 import tempfile
@@ -12,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
-from pynput import keyboard
+import selectors
 
 # ---------------------------------------------------------------------------
 # Config
@@ -89,6 +90,8 @@ def start_recording():
     )
     _stream.start()
     print("[recording...]", flush=True)
+    if _overlay:
+        _overlay.show_recording()
 
 def stop_recording() -> np.ndarray | None:
     global _recording, _stream
@@ -138,38 +141,55 @@ def type_text(text: str):
         subprocess.run(["xdotool", "type", "--clearmodifiers", "--", text], check=True)
 
 # ---------------------------------------------------------------------------
-# Hotkey handling
+# Hotkey handling (evdev — works on both X11 and Wayland)
 # ---------------------------------------------------------------------------
+
+try:
+    from evdev import InputDevice, ecodes, list_devices as _list_devices
+    _EVDEV_AVAILABLE = True
+except ImportError:
+    _EVDEV_AVAILABLE = False
+
+_EVDEV_KEY_MAP = {
+    "left_ctrl":  "KEY_LEFTCTRL",
+    "right_ctrl": "KEY_RIGHTCTRL",
+    "left_alt":   "KEY_LEFTALT",
+    "right_alt":  "KEY_RIGHTALT",
+}
+_TARGET_EVCODE = None
+if _EVDEV_AVAILABLE:
+    import evdev.ecodes as _ec
+    _TARGET_EVCODE = getattr(_ec, _EVDEV_KEY_MAP.get(
+        config.get("hotkey", "left_ctrl"), "KEY_LEFTCTRL"))
 
 _hotkey_held = False
 _transcribe_thread: threading.Thread | None = None
 
-HOTKEY_MAP = {
-    "left_ctrl":  keyboard.Key.ctrl_l,
-    "right_ctrl": keyboard.Key.ctrl_r,
-    "left_alt":   keyboard.Key.alt_l,
-    "right_alt":  keyboard.Key.alt_r,
-}
 
-TARGET_KEY = HOTKEY_MAP.get(config.get("hotkey", "left_ctrl"), keyboard.Key.ctrl_l)
-
-def on_press(key):
+def on_press():
     global _hotkey_held
-    if key == TARGET_KEY and not _hotkey_held:
+    if not _hotkey_held:
         _hotkey_held = True
         start_recording()
 
-def on_release(key):
+
+def on_release():
     global _hotkey_held, _transcribe_thread
-    if key == TARGET_KEY and _hotkey_held:
+    if _hotkey_held:
         _hotkey_held = False
         audio = stop_recording()
 
         def _do_transcribe():
             if audio is None or len(audio) == 0:
                 print("[fluidvoice] No audio captured.", flush=True)
+                if _overlay:
+                    _overlay.hide()
                 return
+            if _overlay:
+                _overlay.show_transcribing()
             text = transcribe(audio)
+            if _overlay:
+                _overlay.hide()
             if text:
                 type_text(text)
             else:
@@ -177,6 +197,161 @@ def on_release(key):
 
         _transcribe_thread = threading.Thread(target=_do_transcribe, daemon=True)
         _transcribe_thread.start()
+
+
+def _find_keyboards():
+    keyboards = []
+    for path in _list_devices():
+        try:
+            dev = InputDevice(path)
+            caps = dev.capabilities()
+            if _ec.EV_KEY in caps and _ec.KEY_A in caps[_ec.EV_KEY]:
+                keyboards.append(dev)
+        except Exception:
+            pass
+    return keyboards
+
+
+def _evdev_listen():
+    keyboards = _find_keyboards()
+    if not keyboards:
+        print("[fluidvoice] ERROR: No keyboard devices found — are you in the 'input' group?", flush=True)
+        return
+    print(f"[fluidvoice] Listening on {len(keyboards)} keyboard device(s) via evdev", flush=True)
+    sel = selectors.DefaultSelector()
+    for kb in keyboards:
+        try:
+            sel.register(kb, selectors.EVENT_READ)
+        except Exception:
+            pass
+    while True:
+        try:
+            for key, _ in sel.select(timeout=1.0):
+                device = key.fileobj
+                try:
+                    for event in device.read():
+                        if event.type == _ec.EV_KEY and event.code == _TARGET_EVCODE:
+                            if event.value == 1:    # key down
+                                on_press()
+                            elif event.value == 0:  # key up
+                                on_release()
+                except OSError:
+                    pass
+        except Exception:
+            pass
+
+# ---------------------------------------------------------------------------
+# On-screen recording overlay (tkinter)
+# ---------------------------------------------------------------------------
+
+_overlay = None
+
+class RecordingOverlay:
+    W, H = 300, 56
+
+    def __init__(self):
+        self._root = None
+        self._canvas = None
+        self._state = "hidden"
+        self._step = 0
+        threading.Thread(target=self._run, daemon=True).start()
+
+    def _run(self):
+        import tkinter as tk
+        root = tk.Tk()
+        self._root = root
+        root.overrideredirect(True)
+        root.wm_attributes("-topmost", True)
+        root.wm_attributes("-alpha", 0.88)
+        root.configure(bg="#111111")
+
+        sw = root.winfo_screenwidth()
+        sh = root.winfo_screenheight()
+        x = (sw - self.W) // 2
+        y = sh - self.H - 48
+        root.geometry(f"{self.W}x{self.H}+{x}+{y}")
+
+        self._canvas = tk.Canvas(root, width=self.W, height=self.H,
+                                  bg="#111111", highlightthickness=0)
+        self._canvas.pack()
+        root.withdraw()
+        self._tick()
+        root.mainloop()
+
+    def _tick(self):
+        if self._root is None:
+            return
+        c = self._canvas
+        c.delete("all")
+        W, H = self.W, self.H
+
+        if self._state == "recording":
+            # Pulsing red dot
+            pulse = 0.6 + 0.4 * abs(math.sin(self._step * 0.12))
+            r = int(11 * pulse)
+            cx, cy = 28, H // 2
+            c.create_oval(cx - r, cy - r, cx + r, cy + r,
+                          fill="#ef4444", outline="")
+            c.create_text(46, cy, text="Recording…", anchor="w",
+                          fill="white", font=("Sans", 14, "bold"))
+            self._step += 1
+
+        elif self._state == "transcribing":
+            # Three bouncing dots
+            n = 3
+            spacing = 16
+            total = spacing * (n - 1)
+            x0 = (W - total) // 2 - 30
+            for i in range(n):
+                phase = self._step * 0.18 + i * 1.0
+                offset = int(6 * abs(math.sin(phase)))
+                cx = x0 + i * spacing
+                cy = H // 2 - offset
+                c.create_oval(cx - 5, cy - 5, cx + 5, cy + 5,
+                              fill="#60a5fa", outline="")
+            c.create_text(x0 + total + 18, H // 2, text="Transcribing…",
+                          anchor="w", fill="#93c5fd", font=("Sans", 13))
+            self._step += 1
+
+        self._root.after(45, self._tick)
+
+    def show_recording(self):
+        if self._root:
+            self._root.after(0, self._do_show_recording)
+
+    def _do_show_recording(self):
+        self._state = "recording"
+        self._step = 0
+        self._root.deiconify()
+        self._root.lift()
+
+    def show_transcribing(self):
+        if self._root:
+            self._root.after(0, self._do_show_transcribing)
+
+    def _do_show_transcribing(self):
+        self._state = "transcribing"
+        self._step = 0
+
+    def hide(self):
+        if self._root:
+            self._root.after(0, self._do_hide)
+
+    def _do_hide(self):
+        self._state = "hidden"
+        self._root.withdraw()
+
+
+def _try_start_overlay():
+    try:
+        import tkinter  # noqa: F401 — just check availability
+        ov = RecordingOverlay()
+        print("[fluidvoice] On-screen overlay ready", flush=True)
+        return ov
+    except Exception as e:
+        print(f"[fluidvoice] Overlay unavailable: {e}", flush=True)
+        return None
+
 
 # ---------------------------------------------------------------------------
 # Optional tray icon
@@ -193,38 +368,17 @@ def _try_start_tray():
             d.ellipse([16, 16, 48, 48], fill="white")
             return img
 
-        icon_ready = _make_icon("#22c55e")
-        icon_rec   = _make_icon("#ef4444")
-
         tray = pystray.Icon(
             "fluidvoice",
-            icon_ready,
+            _make_icon("#22c55e"),
             "FluidVoice — ready",
             menu=pystray.Menu(
-                pystray.MenuItem("Quit", lambda: (tray.stop(), os._exit(0)))
+                pystray.MenuItem("Quit", lambda: os._exit(0))
             ),
         )
-
-        def _press_tray(key):
-            on_press(key)
-            if key == TARGET_KEY:
-                tray.icon  = icon_rec
-                tray.title = "FluidVoice — recording"
-
-        def _release_tray(key):
-            on_release(key)
-            if key == TARGET_KEY:
-                tray.icon  = icon_ready
-                tray.title = "FluidVoice — ready"
-
-        tray._press_fn   = _press_tray
-        tray._release_fn = _release_tray
-
         threading.Thread(target=tray.run, daemon=True).start()
-        return tray
     except Exception as e:
         print(f"[fluidvoice] Tray icon unavailable: {e}", flush=True)
-        return None
 
 # ---------------------------------------------------------------------------
 # Main
@@ -249,17 +403,18 @@ def main():
     # Preload model in background
     threading.Thread(target=get_model, daemon=True).start()
 
-    tray = _try_start_tray()
-    press_fn   = getattr(tray, "_press_fn",   None) if tray else None
-    release_fn = getattr(tray, "_release_fn", None) if tray else None
+    global _overlay
+    _overlay = _try_start_overlay()
+
+    _try_start_tray()
 
     print(f"\nHold {config.get('hotkey', 'left_ctrl')} to record. Ctrl+C to quit.\n", flush=True)
 
-    with keyboard.Listener(
-        on_press   = press_fn   or on_press,
-        on_release = release_fn or on_release,
-    ) as listener:
-        listener.join()
+    if not _EVDEV_AVAILABLE:
+        print("[fluidvoice] ERROR: evdev not installed. Run: pip install evdev", flush=True)
+        return
+
+    _evdev_listen()  # blocks until Ctrl+C
 
 
 if __name__ == "__main__":
