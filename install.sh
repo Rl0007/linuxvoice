@@ -80,7 +80,13 @@ pip3 install --user \
     pystray
 
 # ---------------------------------------------------------------------------
-# 5. Install & enable systemd user service
+# 5. Install 'linuxvoice' command
+# ---------------------------------------------------------------------------
+info "Installing 'linuxvoice' command to /usr/local/bin..."
+sudo ln -sf "$SCRIPT_DIR/linuxvoice" /usr/local/bin/linuxvoice
+
+# ---------------------------------------------------------------------------
+# 6. Install & enable systemd user service
 # ---------------------------------------------------------------------------
 SERVICE_DIR="$HOME/.config/systemd/user"
 mkdir -p "$SERVICE_DIR"
@@ -111,11 +117,11 @@ if [[ "${INPUT_GROUP_ADDED:-0}" == "1" ]]; then
     echo
     warn "After re-login you can just run:"
     echo
-    echo "    python3 $SCRIPT_DIR/main.py"
+    echo "    linuxvoice"
 else
     info "Run with:"
     echo
-    echo "    python3 $SCRIPT_DIR/main.py"
+    echo "    linuxvoice"
 fi
 
 echo

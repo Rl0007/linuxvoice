@@ -20,17 +20,18 @@ The script will:
 1. Install system packages (`xdotool`, `portaudio`, `python3-tkinter`, etc.)
 2. Add your user to the `input` group (required for Wayland global hotkey detection)
 3. `pip install --user` all Python dependencies
-4. Install and enable the systemd user service for autostart
+4. Install `linuxvoice` command to `/usr/local/bin`
+5. Install and enable the systemd user service for autostart
 
 ## First run
 
-If you were just added to the `input` group (new install), log out and back in first, then:
+Log out and back in (so the `input` group takes effect), then just run:
 
 ```bash
-python3 ~/linuxvoice/main.py
+linuxvoice
 ```
 
-Or without re-logging in:
+If you don't want to re-login yet:
 
 ```bash
 sg input -c "python3 ~/linuxvoice/main.py"
