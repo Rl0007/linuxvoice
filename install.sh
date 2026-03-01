@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# FluidVoice Linux — one-shot installer
+# LinuxVoice — one-shot installer
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -87,11 +87,11 @@ mkdir -p "$SERVICE_DIR"
 
 # Patch ExecStart to use the real python3 path and this repo's location
 PYTHON3="$(command -v python3)"
-sed "s|%h/fluidvoice-linux|$SCRIPT_DIR|g; s|/usr/bin/python3|$PYTHON3|g" \
-    "$SCRIPT_DIR/fluidvoice.service" > "$SERVICE_DIR/fluidvoice.service"
+sed "s|%h/linuxvoice|$SCRIPT_DIR|g; s|/usr/bin/python3|$PYTHON3|g" \
+    "$SCRIPT_DIR/linuxvoice.service" > "$SERVICE_DIR/linuxvoice.service"
 
 systemctl --user daemon-reload
-systemctl --user enable fluidvoice.service
+systemctl --user enable linuxvoice.service
 info "Systemd service installed and enabled."
 
 # ---------------------------------------------------------------------------
@@ -99,7 +99,7 @@ info "Systemd service installed and enabled."
 # ---------------------------------------------------------------------------
 echo
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}  FluidVoice Linux installed successfully!${NC}"
+echo -e "${GREEN}  LinuxVoice installed successfully!${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo
 
@@ -121,7 +121,7 @@ fi
 echo
 info "Or start the background service:"
 echo
-echo "    systemctl --user start fluidvoice"
-echo "    journalctl --user -fu fluidvoice   # view logs"
+echo "    systemctl --user start linuxvoice"
+echo "    journalctl --user -fu linuxvoice   # view logs"
 echo
 info "Hold Left Ctrl to record. Release to transcribe and type."

@@ -1,11 +1,11 @@
 [Unit]
-Description=FluidVoice Linux — push-to-talk dictation
+Description=LinuxVoice — push-to-talk dictation
 After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/sg input -c "/usr/bin/python3 %h/fluidvoice-linux/main.py"
-WorkingDirectory=%h/fluidvoice-linux
+ExecStart=/usr/bin/sg input -c "/usr/bin/python3 %h/linuxvoice/main.py"
+WorkingDirectory=%h/linuxvoice
 Restart=on-failure
 RestartSec=5
 Environment=DISPLAY=:0

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FluidVoice Linux — push-to-talk dictation via faster-whisper (CUDA)."""
+"""LinuxVoice — push-to-talk dictation via faster-whisper (CUDA)."""
 
 import json
 import math
@@ -46,18 +46,18 @@ def get_model():
         with _model_lock:
             if _model is None:
                 from faster_whisper import WhisperModel
-                print(f"[fluidvoice] Loading faster-whisper '{MODEL_NAME}' on {DEVICE} ...", flush=True)
+                print(f"[linuxvoice] Loading faster-whisper '{MODEL_NAME}' on {DEVICE} ...", flush=True)
                 if DEVICE == "cuda":
                     try:
                         _model = WhisperModel(MODEL_NAME, device="cuda", compute_type="float16")
-                        print("[fluidvoice] Model loaded on GPU (float16)", flush=True)
+                        print("[linuxvoice] Model loaded on GPU (float16)", flush=True)
                     except Exception as e:
-                        print(f"[fluidvoice] CUDA failed ({e}), falling back to CPU int8", flush=True)
+                        print(f"[linuxvoice] CUDA failed ({e}), falling back to CPU int8", flush=True)
                         _model = WhisperModel(MODEL_NAME, device="cpu", compute_type="int8")
-                        print("[fluidvoice] Model loaded on CPU (int8)", flush=True)
+                        print("[linuxvoice] Model loaded on CPU (int8)", flush=True)
                 else:
                     _model = WhisperModel(MODEL_NAME, device="cpu", compute_type="int8")
-                    print("[fluidvoice] Model loaded on CPU (int8)", flush=True)
+                    print("[linuxvoice] Model loaded on CPU (int8)", flush=True)
     return _model
 
 # ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ _record_lock = threading.Lock()
 
 def _audio_callback(indata, frames, time, status):
     if status:
-        print(f"[fluidvoice] sounddevice: {status}", flush=True)
+        print(f"[linuxvoice] sounddevice: {status}", flush=True)
     with _record_lock:
         if _recording:
             _audio_chunks.append(indata.copy())
@@ -132,7 +132,7 @@ def transcribe(audio: np.ndarray) -> str:
 def type_text(text: str):
     if not text:
         return
-    print(f"[fluidvoice] Typing: {text!r}", flush=True)
+    print(f"[linuxvoice] Typing: {text!r}", flush=True)
 
     if TYPING_METHOD == "clipboard":
         subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode(), check=True)
@@ -181,7 +181,7 @@ def on_release():
 
         def _do_transcribe():
             if audio is None or len(audio) == 0:
-                print("[fluidvoice] No audio captured.", flush=True)
+                print("[linuxvoice] No audio captured.", flush=True)
                 if _overlay:
                     _overlay.hide()
                 return
@@ -193,7 +193,7 @@ def on_release():
             if text:
                 type_text(text)
             else:
-                print("[fluidvoice] Empty transcript.", flush=True)
+                print("[linuxvoice] Empty transcript.", flush=True)
 
         _transcribe_thread = threading.Thread(target=_do_transcribe, daemon=True)
         _transcribe_thread.start()
@@ -215,9 +215,9 @@ def _find_keyboards():
 def _evdev_listen():
     keyboards = _find_keyboards()
     if not keyboards:
-        print("[fluidvoice] ERROR: No keyboard devices found — are you in the 'input' group?", flush=True)
+        print("[linuxvoice] ERROR: No keyboard devices found — are you in the 'input' group?", flush=True)
         return
-    print(f"[fluidvoice] Listening on {len(keyboards)} keyboard device(s) via evdev", flush=True)
+    print(f"[linuxvoice] Listening on {len(keyboards)} keyboard device(s) via evdev", flush=True)
     sel = selectors.DefaultSelector()
     for kb in keyboards:
         try:
@@ -346,10 +346,10 @@ def _try_start_overlay():
     try:
         import tkinter  # noqa: F401 — just check availability
         ov = RecordingOverlay()
-        print("[fluidvoice] On-screen overlay ready", flush=True)
+        print("[linuxvoice] On-screen overlay ready", flush=True)
         return ov
     except Exception as e:
-        print(f"[fluidvoice] Overlay unavailable: {e}", flush=True)
+        print(f"[linuxvoice] Overlay unavailable: {e}", flush=True)
         return None
 
 
@@ -369,16 +369,16 @@ def _try_start_tray():
             return img
 
         tray = pystray.Icon(
-            "fluidvoice",
+            "linuxvoice",
             _make_icon("#22c55e"),
-            "FluidVoice — ready",
+            "LinuxVoice — ready",
             menu=pystray.Menu(
                 pystray.MenuItem("Quit", lambda: os._exit(0))
             ),
         )
         threading.Thread(target=tray.run, daemon=True).start()
     except Exception as e:
-        print(f"[fluidvoice] Tray icon unavailable: {e}", flush=True)
+        print(f"[linuxvoice] Tray icon unavailable: {e}", flush=True)
 
 # ---------------------------------------------------------------------------
 # Main
@@ -386,7 +386,7 @@ def _try_start_tray():
 
 def main():
     print("=" * 50, flush=True)
-    print("FluidVoice Linux", flush=True)
+    print("LinuxVoice", flush=True)
     print(f"  Model   : faster-whisper/{MODEL_NAME}", flush=True)
     print(f"  Device  : {DEVICE}", flush=True)
     print(f"  Hotkey  : {config.get('hotkey', 'left_ctrl')}", flush=True)
@@ -396,9 +396,9 @@ def main():
     import ctranslate2
     n = ctranslate2.get_cuda_device_count()
     if n > 0:
-        print(f"[fluidvoice] CUDA ready — {n} device(s)", flush=True)
+        print(f"[linuxvoice] CUDA ready — {n} device(s)", flush=True)
     else:
-        print("[fluidvoice] WARNING: CUDA not available, will run on CPU", flush=True)
+        print("[linuxvoice] WARNING: CUDA not available, will run on CPU", flush=True)
 
     # Preload model in background
     threading.Thread(target=get_model, daemon=True).start()
@@ -411,7 +411,7 @@ def main():
     print(f"\nHold {config.get('hotkey', 'left_ctrl')} to record. Ctrl+C to quit.\n", flush=True)
 
     if not _EVDEV_AVAILABLE:
-        print("[fluidvoice] ERROR: evdev not installed. Run: pip install evdev", flush=True)
+        print("[linuxvoice] ERROR: evdev not installed. Run: pip install evdev", flush=True)
         return
 
     _evdev_listen()  # blocks until Ctrl+C

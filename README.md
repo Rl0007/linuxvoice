@@ -1,4 +1,4 @@
-# FluidVoice Linux
+# LinuxVoice
 
 Push-to-talk dictation for Linux. Hold a key → speak → release → text is typed into whatever window you have focused.
 
@@ -10,8 +10,8 @@ Push-to-talk dictation for Linux. Hold a key → speak → release → text is t
 ## Quick install
 
 ```bash
-git clone <repo-url> ~/fluidvoice-linux
-cd ~/fluidvoice-linux
+git clone <repo-url> ~/linuxvoice
+cd ~/linuxvoice
 chmod +x install.sh
 ./install.sh
 ```
@@ -27,13 +27,13 @@ The script will:
 If you were just added to the `input` group (new install), log out and back in first, then:
 
 ```bash
-python3 ~/fluidvoice-linux/main.py
+python3 ~/linuxvoice/main.py
 ```
 
 Or without re-logging in:
 
 ```bash
-sg input -c "python3 ~/fluidvoice-linux/main.py"
+sg input -c "python3 ~/linuxvoice/main.py"
 ```
 
 Hold **Left Ctrl** to record. Release to transcribe and type.
@@ -45,10 +45,10 @@ A small animated overlay appears at the bottom-center of your screen:
 ## Autostart (background service)
 
 ```bash
-systemctl --user start fluidvoice      # start now
-systemctl --user status fluidvoice     # check status
-journalctl --user -fu fluidvoice       # live logs
-systemctl --user disable fluidvoice    # remove autostart
+systemctl --user start linuxvoice      # start now
+systemctl --user status linuxvoice     # check status
+journalctl --user -fu linuxvoice       # live logs
+systemctl --user disable linuxvoice    # remove autostart
 ```
 
 ## Config (`config.json`)
