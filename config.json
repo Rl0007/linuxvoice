@@ -1,6 +1,6 @@
 {
-  "model": "nvidia/parakeet-tdt-0.6b-v3",
-  "device": "cuda",
+  "model": "base",
+  "device": "cpu",
   "hotkey": "left_ctrl",
   "typing_method": "xdotool",
   "sample_rate": 16000,

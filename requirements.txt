@@ -1,5 +1,6 @@
-nemo_toolkit[asr]
+faster-whisper
 sounddevice
+soundfile
 numpy
 pynput
 Pillow

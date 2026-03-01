@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FluidVoice Linux — push-to-talk dictation via NVIDIA Parakeet TDT."""
+"""FluidVoice Linux — push-to-talk dictation via faster-whisper (CUDA)."""
 
 import json
 import os
@@ -11,6 +11,7 @@ from pathlib import Path
 
 import numpy as np
 import sounddevice as sd
+import soundfile as sf
 from pynput import keyboard
 
 # ---------------------------------------------------------------------------
@@ -26,13 +27,13 @@ def load_config():
 config = load_config()
 
 SAMPLE_RATE = config.get("sample_rate", 16000)
-CHANNELS = config.get("channels", 1)
-DEVICE = config.get("device", "cuda")
-MODEL_NAME = config.get("model", "nvidia/parakeet-tdt-0.6b-v3")
+CHANNELS    = config.get("channels", 1)
+DEVICE      = config.get("device", "cuda")
+MODEL_NAME  = config.get("model", "base")
 TYPING_METHOD = config.get("typing_method", "xdotool")
 
 # ---------------------------------------------------------------------------
-# Model loading (deferred to first use for fast startup)
+# Model loading
 # ---------------------------------------------------------------------------
 
 _model = None
@@ -43,16 +44,19 @@ def get_model():
     if _model is None:
         with _model_lock:
             if _model is None:
-                import nemo.collections.asr as nemo_asr
-                import torch
-                print(f"[fluidvoice] Loading {MODEL_NAME} ...", flush=True)
-                _model = nemo_asr.models.ASRModel.from_pretrained(MODEL_NAME)
-                if DEVICE == "cuda" and torch.cuda.is_available():
-                    _model = _model.cuda()
-                    print(f"[fluidvoice] Model on GPU: {torch.cuda.get_device_name(0)}", flush=True)
+                from faster_whisper import WhisperModel
+                print(f"[fluidvoice] Loading faster-whisper '{MODEL_NAME}' on {DEVICE} ...", flush=True)
+                if DEVICE == "cuda":
+                    try:
+                        _model = WhisperModel(MODEL_NAME, device="cuda", compute_type="float16")
+                        print("[fluidvoice] Model loaded on GPU (float16)", flush=True)
+                    except Exception as e:
+                        print(f"[fluidvoice] CUDA failed ({e}), falling back to CPU int8", flush=True)
+                        _model = WhisperModel(MODEL_NAME, device="cpu", compute_type="int8")
+                        print("[fluidvoice] Model loaded on CPU (int8)", flush=True)
                 else:
-                    print("[fluidvoice] Model on CPU (CUDA not available)", flush=True)
-                _model.eval()
+                    _model = WhisperModel(MODEL_NAME, device="cpu", compute_type="int8")
+                    print("[fluidvoice] Model loaded on CPU (int8)", flush=True)
     return _model
 
 # ---------------------------------------------------------------------------
@@ -65,7 +69,7 @@ _record_lock = threading.Lock()
 
 def _audio_callback(indata, frames, time, status):
     if status:
-        print(f"[fluidvoice] sounddevice status: {status}", flush=True)
+        print(f"[fluidvoice] sounddevice: {status}", flush=True)
     with _record_lock:
         if _recording:
             _audio_chunks.append(indata.copy())
@@ -107,28 +111,16 @@ def transcribe(audio: np.ndarray) -> str:
     print("[transcribing...]", flush=True)
     model = get_model()
 
-    # Write to temp WAV
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         tmp_path = f.name
 
     try:
-        audio_int16 = (audio * 32767).astype(np.int16)
-        with wave.open(tmp_path, "wb") as wf:
-            wf.setnchannels(CHANNELS)
-            wf.setsampwidth(2)  # 16-bit
-            wf.setframerate(SAMPLE_RATE)
-            wf.writeframes(audio_int16.tobytes())
-
-        transcripts = model.transcribe([tmp_path])
-        if transcripts:
-            text = transcripts[0]
-            if hasattr(text, "text"):  # NeMo Hypothesis object
-                text = text.text
-            return str(text).strip()
+        sf.write(tmp_path, audio, SAMPLE_RATE)
+        segments, info = model.transcribe(tmp_path, beam_size=5, language="en")
+        text = " ".join(seg.text.strip() for seg in segments)
+        return text.strip()
     finally:
         os.unlink(tmp_path)
-
-    return ""
 
 # ---------------------------------------------------------------------------
 # Typing output
@@ -140,22 +132,10 @@ def type_text(text: str):
     print(f"[fluidvoice] Typing: {text!r}", flush=True)
 
     if TYPING_METHOD == "clipboard":
-        # xdotool type can be slow for long strings; clipboard is faster
-        proc = subprocess.run(
-            ["xclip", "-selection", "clipboard"],
-            input=text.encode(),
-            check=True,
-        )
-        subprocess.run(
-            ["xdotool", "key", "--clearmodifiers", "ctrl+v"],
-            check=True,
-        )
+        subprocess.run(["xclip", "-selection", "clipboard"], input=text.encode(), check=True)
+        subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=True)
     else:
-        # Default: xdotool type
-        subprocess.run(
-            ["xdotool", "type", "--clearmodifiers", "--", text],
-            check=True,
-        )
+        subprocess.run(["xdotool", "type", "--clearmodifiers", "--", text], check=True)
 
 # ---------------------------------------------------------------------------
 # Hotkey handling
@@ -165,10 +145,10 @@ _hotkey_held = False
 _transcribe_thread: threading.Thread | None = None
 
 HOTKEY_MAP = {
-    "left_ctrl": keyboard.Key.ctrl_l,
+    "left_ctrl":  keyboard.Key.ctrl_l,
     "right_ctrl": keyboard.Key.ctrl_r,
-    "left_alt": keyboard.Key.alt_l,
-    "right_alt": keyboard.Key.alt_r,
+    "left_alt":   keyboard.Key.alt_l,
+    "right_alt":  keyboard.Key.alt_r,
 }
 
 TARGET_KEY = HOTKEY_MAP.get(config.get("hotkey", "left_ctrl"), keyboard.Key.ctrl_l)
@@ -213,8 +193,8 @@ def _try_start_tray():
             d.ellipse([16, 16, 48, 48], fill="white")
             return img
 
-        icon_ready = _make_icon("#22c55e")   # green
-        icon_rec   = _make_icon("#ef4444")   # red
+        icon_ready = _make_icon("#22c55e")
+        icon_rec   = _make_icon("#ef4444")
 
         tray = pystray.Icon(
             "fluidvoice",
@@ -225,28 +205,22 @@ def _try_start_tray():
             ),
         )
 
-        # Patch on_press/on_release to update tray icon
-        _orig_press   = on_press
-        _orig_release = on_release
-
         def _press_tray(key):
-            _orig_press(key)
+            on_press(key)
             if key == TARGET_KEY:
                 tray.icon  = icon_rec
                 tray.title = "FluidVoice — recording"
 
         def _release_tray(key):
-            _orig_release(key)
+            on_release(key)
             if key == TARGET_KEY:
                 tray.icon  = icon_ready
                 tray.title = "FluidVoice — ready"
 
-        # Replace listener functions via closure
         tray._press_fn   = _press_tray
         tray._release_fn = _release_tray
 
-        tray_thread = threading.Thread(target=tray.run, daemon=True)
-        tray_thread.start()
+        threading.Thread(target=tray.run, daemon=True).start()
         return tray
     except Exception as e:
         print(f"[fluidvoice] Tray icon unavailable: {e}", flush=True)
@@ -259,29 +233,23 @@ def _try_start_tray():
 def main():
     print("=" * 50, flush=True)
     print("FluidVoice Linux", flush=True)
-    print(f"  Model   : {MODEL_NAME}", flush=True)
+    print(f"  Model   : faster-whisper/{MODEL_NAME}", flush=True)
     print(f"  Device  : {DEVICE}", flush=True)
     print(f"  Hotkey  : {config.get('hotkey', 'left_ctrl')}", flush=True)
     print(f"  Typing  : {TYPING_METHOD}", flush=True)
     print("=" * 50, flush=True)
 
-    # Verify CUDA
-    try:
-        import torch
-        if torch.cuda.is_available():
-            print(f"[fluidvoice] CUDA ready — {torch.cuda.get_device_name(0)}", flush=True)
-        else:
-            print("[fluidvoice] WARNING: CUDA not available, running on CPU (slow)", flush=True)
-    except ImportError:
-        print("[fluidvoice] torch not importable yet — will check at model load", flush=True)
+    import ctranslate2
+    n = ctranslate2.get_cuda_device_count()
+    if n > 0:
+        print(f"[fluidvoice] CUDA ready — {n} device(s)", flush=True)
+    else:
+        print("[fluidvoice] WARNING: CUDA not available, will run on CPU", flush=True)
 
-    # Preload model in background so first keystroke isn't slow
-    preload_thread = threading.Thread(target=get_model, daemon=True)
-    preload_thread.start()
+    # Preload model in background
+    threading.Thread(target=get_model, daemon=True).start()
 
     tray = _try_start_tray()
-
-    # If tray patched the listeners, use those
     press_fn   = getattr(tray, "_press_fn",   None) if tray else None
     release_fn = getattr(tray, "_release_fn", None) if tray else None
 
