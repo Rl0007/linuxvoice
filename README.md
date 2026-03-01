@@ -1,5 +1,13 @@
 # LinuxVoice
 
+Press and hold **right_ctrl** to talk to linuxvoice.
+
+
+https://github.com/user-attachments/assets/17112cdb-96bd-480c-8513-2d06cebf1f5a
+
+Even though the faster-whisper is an Open Source model the results are surprisingly fast and accurate.
+
+
 Push-to-talk dictation for Linux. Hold a key → speak → release → text is typed into whatever window you have focused.
 
 - **Transcription:** [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (Whisper base, CPU int8 by default; set `"device": "cuda"` if you have CUDA libs)
@@ -91,3 +99,5 @@ sudo usermod -aG input $USER
 # Python packages
 pip install faster-whisper sounddevice soundfile numpy evdev Pillow pystray
 ```
+
+
