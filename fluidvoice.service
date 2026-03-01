@@ -1,0 +1,15 @@
+[Unit]
+Description=FluidVoice Linux — push-to-talk dictation
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/python %h/fluidvoice-linux/main.py
+WorkingDirectory=%h/fluidvoice-linux
+Restart=on-failure
+RestartSec=5
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=%h/.Xauthority
+
+[Install]
+WantedBy=default.target
