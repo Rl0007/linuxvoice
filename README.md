@@ -4,7 +4,7 @@ Push-to-talk dictation for Linux. Hold a key → speak → release → text is t
 
 - **Transcription:** [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (Whisper base, CPU int8 by default; set `"device": "cuda"` if you have CUDA libs)
 - **Works on:** X11 and Wayland
-- **Hotkey:** Left Ctrl (configurable)
+- **Hotkey:** Right Ctrl (configurable)
 - **Output:** `xdotool type` or clipboard paste
 
 ## Quick install
